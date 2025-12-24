@@ -1,0 +1,137 @@
+Calendar = // table
+
+-- This table is based on DAX that was initially generated using Bravo for
+-- Power BI (https://bravo.bi/). The final code contains further customisations
+-- to support weekly time intelligence and other miscellaneous uses.
+-- Sourced from https://github.com/cruising-altitude/public
+
+
+-- [Configuration 1] -----------------------------------------------------------
+-- Determine the date range of the calendar, either automatically or by
+-- providing fixed values.
+VAR __Calendar=CALENDARAUTO() // automatic
+// VAR__Calendar=CALENDAR(DATE(2020,1,1),DATE(2029,12,31)) // manually set
+
+
+-- [Configuration 2] -----------------------------------------------------------
+-- Determine the first day of week (0-6; 0 being Sunday, 1 Monday, etc.).
+VAR __FirstDayOfWeek=1
+
+
+-- [Configuration 3] -----------------------------------------------------------
+-- Determine the month number (1-12) that starts the fiscal year.
+VAR __FirstFiscalMonth=7
+
+
+-- [Configuration 4] -----------------------------------------------------------
+-- Is the fiscal year referred to as the calendar year of its first day (0)
+-- or its last (1)?
+VAR __TypeStartFiscalYear=1
+
+
+-- Generate a table based on the above configurations.
+VAR __WorkingDayType="Working day"
+VAR __NonWorkingDayType="Non-working day"
+VAR __WorkingDays={2,3,4,5,6}
+VAR __IsStandardLocale=IF(FORMAT(DATE(2000,1,1),"oooo")="oooo",TRUE,FALSE)
+VAR __MonthFormatString=IF(__IsStandardLocale,"mmm","ooo")
+VAR __OffsetFiscalYearBeforeMonth=IF(__FirstFiscalMonth>1,__TypeStartFiscalYear-1,0)
+VAR __OffsetFiscalYearOnOrAfterMonth=IF(__FirstFiscalMonth>1,__TypeStartFiscalYear,0)
+VAR __DayFormatString=IF(__IsStandardLocale,"ddd","aaa")
+VAR __WeekDayCalculationType=IF(__FirstDayOfWeek=0,7,__FirstDayOfWeek)+10
+VAR __Output=GENERATE(
+    __Calendar,
+    VAR __Date=[Date]
+    VAR __LastTransactionDate=MAXX(__Calendar,[Date])
+    VAR __YearNumber=YEAR(__Date)
+    VAR __MonthNumber=MONTH(__Date)
+    VAR __QuarterNumber=ROUNDUP(__MonthNumber/3,0)
+    VAR __DayOfMonthNumber=DAY(__Date)
+    VAR __DateKey=__YearNumber*10000+__MonthNumber*100+__DayOfMonthNumber
+    VAR __FiscalYearNumber=__YearNumber+__OffsetFiscalYearOnOrAfterMonth*( 
+        __FirstFiscalMonth>1&&__MonthNumber>=__FirstFiscalMonth
+    )+__OffsetFiscalYearBeforeMonth*(
+        __FirstFiscalMonth>1&&__MonthNumber<__FirstFiscalMonth
+    )
+    VAR __FiscalMonthNumber=__MonthNumber-__FirstFiscalMonth+1+12*(
+        __MonthNumber<__FirstFiscalMonth
+    )
+    VAR __FiscalQuarterNumber=ROUNDUP(__FiscalMonthNumber/3,0)
+    VAR __FiscalYearQuarterNumber=CONVERT(
+        __FiscalYearNumber*4+__FiscalQuarterNumber-1,INTEGER
+    )
+    VAR __FiscalMonthInQuarterNumber=MOD(__FiscalMonthNumber-1,3)+1
+    VAR __WeekDay=FORMAT(__Date,__DayFormatString)
+    VAR __WeekDayNumber=WEEKDAY(__Date,__WeekDayCalculationType)
+    VAR __FirstDayOfYear=DATE(
+        __FiscalYearNumber-1*(__FirstFiscalMonth>1),
+        __FirstFiscalMonth,
+        1
+    )
+    VAR __FiscalYearDayNumber=SUMX(
+        CALENDAR(__FirstDayOfYear,__Date),
+        1*(MONTH(''[Date])<>2||DAY(''[Date])<>29)
+    )
+    VAR __IsWorkingDay=WEEKDAY(__Date,1) IN __WorkingDays
+    VAR __DateStartOfWeek=(
+        (__Date-WEEKDAY(__Date,2))
+        +IF((__FirstDayOfWeek=0)&&(WEEKDAY(__Date,2)=7),7,__FirstDayOfWeek)
+    )-IF(WEEKDAY(__Date,2)<__FirstDayOfWeek,7,0)
+    VAR __YearNumberStartOfWeek=YEAR(__DateStartOfWeek)
+    VAR __MonthNumberStartOfWeek=MONTH(__DateStartOfWeek)
+    VAR __FiscalYearNumberStartOfWeek=__YearNumberStartOfWeek
+    +__OffsetFiscalYearOnOrAfterMonth*(
+        __FirstFiscalMonth>1&&__MonthNumberStartOfWeek>=__FirstFiscalMonth
+    )+__OffsetFiscalYearBeforeMonth*(
+        __FirstFiscalMonth>1&&__MonthNumberStartOfWeek<__FirstFiscalMonth
+    )
+    VAR __FiscalMonthNumberStartOfWeek=__MonthNumberStartOfWeek
+    -__FirstFiscalMonth+1+12*(__MonthNumberStartOfWeek<__FirstFiscalMonth)
+    VAR __FiscalQuarterNumberStartOfWeek=ROUNDUP(__FiscalMonthNumberStartOfWeek/3,0)
+    VAR __WeekNumber=WEEKNUM(__Date,IF(__FirstDayOfWeek=0,1,__FirstDayOfWeek+10))
+    VAR __WeekNumberStartOfFiscalYear=WEEKNUM(
+        DATE(YEAR(__YearNumber),__FirstFiscalMonth,1),
+        IF(__FirstDayOfWeek=0,1,__FirstDayOfWeek+10)
+    )
+    RETURN ROW (
+        "DateKey",__DateKey,
+        "Start of Week",__DateStartOfWeek,
+        "Sequential Day Number",INT(__Date),
+        "Year",__YearNumber,
+        "Year Quarter",__YearNumber&"-"&"Q"&__QuarterNumber,
+        "Year Month",FORMAT(__Date,__MonthFormatString&" yyyy"),
+        "Year Month Number",__YearNumber*12+__MonthNumber-1,
+        "Fiscal Year",FORMAT(__FiscalYearNumber,"\F\Y 0000"),
+        "Fiscal Year Number",__FiscalYearNumber,
+        "Fiscal Year Quarter",FORMAT(__FiscalQuarterNumber,"\F\Q0")&"-"
+        &FORMAT(__FiscalYearNumber,"0000"),
+        "Fiscal Year Quarter Number",__FiscalYearQuarterNumber,
+        "Fiscal Quarter",FORMAT(__FiscalQuarterNumber,"\F\Q0"),
+        "Month",FORMAT(__Date,__MonthFormatString),
+        "Fiscal Month Number",__FiscalMonthNumber,
+        "Fiscal Month in Quarter Number",__FiscalMonthInQuarterNumber,
+        "Day of Week",__WeekDay,
+        "Day of Week Number",__WeekDayNumber,
+        "Day of Month Number",__DayOfMonthNumber,
+        "Day of Fiscal Year Number",__FiscalYearDayNumber,
+        "Working Day",IF(__IsWorkingDay,__WorkingDayType,__NonWorkingDayType),
+        "IsWorking",__IsWorkingDay,
+        "Working Day Value",IF(__IsWorkingDay,1),
+        "DateWithTransactions",__Date<=__LastTransactionDate,
+        "Week Number",__WeekNumber,
+        "Fiscal Week Number",IF(__WeekNumber>=__WeekNumberStartOfFiscalYear,
+            __WeekNumber-(__WeekNumberStartOfFiscalYear-1),
+            52+(__WeekNumber-(__WeekNumberStartOfFiscalYear-1))
+        ),
+        "Year Month Start of Week",
+        FORMAT(__DateStartOfWeek,__MonthFormatString&" yyyy"),
+        "Fiscal Year Quarter Start of Week",
+        FORMAT(__FiscalQuarterNumberStartOfWeek,"\F\Q0")
+        &"-"&FORMAT(__FiscalYearNumberStartOfWeek,"0000"),
+        "Fiscal Quarter Start of Week",
+        FORMAT(__FiscalQuarterNumberStartOfWeek,"\F\Q0"),
+        "Month Start of Week",
+        FORMAT(__DateStartOfWeek,__MonthFormatString)
+    )
+)
+RETURN __Output
